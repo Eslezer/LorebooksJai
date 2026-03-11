@@ -472,6 +472,26 @@ button:disabled {
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
 
+/* Autosave indicator */
+.autosave-status {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: #16213e;
+  color: #2ecc71;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 9999;
+  border: 1px solid #2ecc7144;
+}
+.autosave-status.visible {
+  opacity: 1;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .toolbar { padding: 8px 12px; }

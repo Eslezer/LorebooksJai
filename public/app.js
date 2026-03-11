@@ -16,6 +16,48 @@
   const emptyStateEl = $('empty-state');
   const filterBar = $('filter-bar');
 
+  // ---- LocalStorage Autosave ----
+  const STORAGE_KEY = 'lorebook-autosave';
+  const STORAGE_FORMAT_KEY = 'lorebook-autosave-format';
+
+  function saveToLocal() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+      if (sourceFormat) localStorage.setItem(STORAGE_FORMAT_KEY, sourceFormat);
+      showAutosaveStatus('Saved');
+    } catch (e) {
+      showAutosaveStatus('Save failed');
+    }
+  }
+
+  function loadFromLocal() {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (!saved) return false;
+      const data = JSON.parse(saved);
+      if (!Array.isArray(data) || data.length === 0) return false;
+      entries = data;
+      sourceFormat = localStorage.getItem(STORAGE_FORMAT_KEY) || 'janitor';
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function clearLocalSave() {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(STORAGE_FORMAT_KEY);
+  }
+
+  function showAutosaveStatus(msg) {
+    const el = $('autosave-status');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add('visible');
+    clearTimeout(el._timer);
+    el._timer = setTimeout(() => el.classList.remove('visible'), 2000);
+  }
+
   // ---- Helpers ----
   function pushUndo() {
     undoStack.push(JSON.parse(JSON.stringify(entries)));
@@ -25,6 +67,7 @@
   function undo() {
     if (!undoStack.length) return;
     entries = undoStack.pop();
+    if (!entries.length) clearLocalSave();
     render();
   }
 
@@ -72,6 +115,8 @@
   // ---- Rendering ----
   function render() {
     updateToolbar();
+    // Autosave on every render (which follows every mutation)
+    if (entries.length) saveToLocal();
 
     if (!entries.length) {
       emptyStateEl.classList.remove('hidden');
@@ -303,6 +348,7 @@
     const keys = $('ed-keywords').value.split(',').map(k => k.trim()).filter(Boolean);
     const secKeys = $('ed-secondary-keys').value.split(',').map(k => k.trim()).filter(Boolean);
     const tags = $('ed-tags').value.split(',').map(t => t.trim()).filter(Boolean);
+    const newPriority = parseInt($('ed-priority').value) || 0;
 
     const obj = {
       activationMode: $('ed-activation-mode').value,
@@ -327,7 +373,7 @@
       minMessages: 0,
       name: $('ed-name').value,
       prioritizeInclusion: false,
-      priority: parseInt($('ed-priority').value) || 0,
+      priority: newPriority,
       probability: parseInt($('ed-probability').value) || 100,
       selectiveLogic: 0,
       tags: tags,
@@ -335,8 +381,33 @@
     };
 
     if (editingIndex >= 0) {
+      const oldPriority = entries[editingIndex].priority;
       entries[editingIndex] = obj;
+
+      // Renumber priorities: shift other entries to make room
+      if (oldPriority !== newPriority) {
+        entries.forEach((e, i) => {
+          if (i === editingIndex) return;
+          if (oldPriority > newPriority) {
+            // Moved up: push entries in [newPriority, oldPriority) down by 1
+            if (e.priority >= newPriority && e.priority < oldPriority) {
+              e.priority++;
+            }
+          } else {
+            // Moved down: pull entries in (oldPriority, newPriority] up by 1
+            if (e.priority > oldPriority && e.priority <= newPriority) {
+              e.priority--;
+            }
+          }
+        });
+      }
     } else {
+      // New entry: push down anything at or below the new priority
+      entries.forEach(e => {
+        if (e.priority >= newPriority) {
+          e.priority++;
+        }
+      });
       entries.push(obj);
     }
 
@@ -641,6 +712,11 @@
         undo();
       }
     });
+
+    // Restore from localStorage if available
+    if (loadFromLocal()) {
+      showAutosaveStatus('Restored from local save');
+    }
 
     render();
   }
