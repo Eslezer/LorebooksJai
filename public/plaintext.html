@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lorebook → Plain Text</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #1a1a2e; color: #e0e0e0; font-family: 'Segoe UI', sans-serif; padding: 24px; min-height: 100vh; }
+    h1 { margin-bottom: 4px; }
+    .subtitle { color: #8892a4; margin-bottom: 20px; }
+    .container { max-width: 900px; margin: 0 auto; }
+    .row { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+    button { background: #0f3460; color: #e0e0e0; border: 1px solid #e9456033; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
+    button:hover { background: #e94560; color: #fff; }
+    textarea { width: 100%; background: #16213e; color: #e0e0e0; border: 1px solid #0f3460; border-radius: 6px; padding: 12px; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; resize: vertical; }
+    textarea:focus { outline: none; border-color: #e94560; }
+    label { display: block; margin-bottom: 6px; font-weight: 600; }
+    .separator-row { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+    .separator-row input { background: #16213e; color: #e0e0e0; border: 1px solid #0f3460; border-radius: 6px; padding: 6px 10px; width: 200px; font-family: monospace; }
+    .separator-row input:focus { outline: none; border-color: #e94560; }
+    .checkbox-label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-weight: normal; }
+    .info { color: #8892a4; font-size: 0.85rem; margin-bottom: 16px; }
+    .count { color: #2ecc71; font-size: 0.85rem; margin-top: 4px; }
+    a { color: #e94560; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Lorebook → Plain Text</h1>
+    <p class="subtitle">Extract only the content from lorebook entries. <a href="/">← Back to Editor</a></p>
+
+    <div class="row">
+      <button id="btn-import">Import File</button>
+      <button id="btn-paste">Paste & Extract</button>
+      <button id="btn-copy" style="display:none">Copy Output</button>
+    </div>
+
+    <div class="separator-row">
+      <label style="margin:0">Separator:</label>
+      <input type="text" id="separator" value="\n---\n" title="Text between entries. Use \n for newline.">
+      <label class="checkbox-label"><input type="checkbox" id="include-names"> Include entry names</label>
+    </div>
+
+    <label>Input (paste lorebook JSON):</label>
+    <textarea id="input" rows="10" placeholder="Paste your lorebook JSON here, or use Import File..."></textarea>
+    <p class="info">Supports both JanitorAI and SillyTavern formats.</p>
+
+    <div class="row">
+      <button id="btn-extract">Extract Content</button>
+    </div>
+
+    <label>Output (plain text):</label>
+    <textarea id="output" rows="18" readonly placeholder="Extracted content will appear here..."></textarea>
+    <p id="count" class="count"></p>
+  </div>
+
+  <input type="file" id="file-input" accept=".json" style="display:none">
+
+  <script>
+    const $ = id => document.getElementById(id);
+
+    function parseEntries(text) {
+      const data = JSON.parse(text);
+      if (Array.isArray(data)) return data;
+      if (data.entries && typeof data.entries === 'object') return Object.values(data.entries);
+      throw new Error('Unrecognized format');
+    }
+
+    function extract() {
+      const raw = $('input').value.trim();
+      if (!raw) return;
+
+      let entries;
+      try {
+        entries = parseEntries(raw);
+      } catch (e) {
+        alert('Invalid JSON or unrecognized lorebook format: ' + e.message);
+        return;
+      }
+
+      const sep = $('separator').value.replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+      const includeNames = $('include-names').checked;
+
+      const texts = entries.map(e => {
+        const content = e.content || '';
+        if (includeNames) {
+          const name = e.name || e.comment || 'Unnamed';
+          return `[${name}]\n${content}`;
+        }
+        return content;
+      }).filter(t => t.trim());
+
+      $('output').value = texts.join(sep);
+      $('count').textContent = `${texts.length} entries extracted.`;
+      $('btn-copy').style.display = '';
+    }
+
+    $('btn-extract').addEventListener('click', extract);
+
+    $('btn-import').addEventListener('click', () => $('file-input').click());
+    $('file-input').addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        $('input').value = reader.result;
+        extract();
+      };
+      reader.readAsText(file);
+      e.target.value = '';
+    });
+
+    $('btn-paste').addEventListener('click', async () => {
+      try {
+        const text = await navigator.clipboard.readText();
+        $('input').value = text;
+        extract();
+      } catch {
+        alert('Clipboard access denied. Paste manually into the input box.');
+      }
+    });
+
+    $('btn-copy').addEventListener('click', () => {
+      $('output').select();
+      navigator.clipboard.writeText($('output').value).then(() => {
+        $('btn-copy').textContent = 'Copied!';
+        setTimeout(() => { $('btn-copy').textContent = 'Copy Output'; }, 1500);
+      });
+    });
+  </script>
+</body>
+</html>
