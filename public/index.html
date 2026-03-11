@@ -27,6 +27,8 @@
       <button id="btn-find-replace" disabled>Find & Replace</button>
       <button id="btn-bulk-retag" disabled>Bulk Retag</button>
       <button id="btn-reindex" disabled>Reindex IDs</button>
+      <button id="btn-code-editor" disabled>Code Editor</button>
+      <button id="btn-snippet" title="Add entries from JSON snippet">+ Snippet</button>
       <button id="btn-restart" class="btn-danger">Restart</button>
       <a href="plaintext.html" class="toolbar-link">Plain Text</a>
     </div>
@@ -132,6 +134,49 @@
     </div>
     <div class="filter-group">
       <span id="entry-count"></span>
+    </div>
+  </div>
+
+  <!-- Code Editor Panel -->
+  <div id="code-editor-panel" class="panel hidden">
+    <div class="panel-header">
+      <h3>Code Editor</h3>
+      <div style="display:flex; gap:6px; align-items:center;">
+        <span id="code-editor-status" style="font-size:0.8rem; color:var(--text-dim);"></span>
+        <button id="code-editor-format" title="Format JSON">Format</button>
+        <button id="code-editor-apply" class="btn-primary">Apply Changes</button>
+        <button class="close-btn" data-close="code-editor-panel">&times;</button>
+      </div>
+    </div>
+    <div class="panel-body" style="padding:8px 16px;">
+      <textarea id="code-editor-textarea" class="code-editor-textarea" rows="20" spellcheck="false" placeholder="Raw JSON will appear here..."></textarea>
+    </div>
+  </div>
+
+  <!-- Snippet Import Modal -->
+  <div id="snippet-modal" class="modal hidden">
+    <div class="modal-content" style="max-width: 640px;">
+      <div class="modal-header">
+        <h3>Import JSON Snippet</h3>
+        <button class="close-btn" id="snippet-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:0.85rem; color:var(--text-dim); margin-bottom:12px;">
+          Paste a single entry object, an array of entries, or a full lorebook. Entries will be added to your current lorebook.
+        </p>
+        <div class="form-group">
+          <label for="snippet-input">JSON Snippet</label>
+          <textarea id="snippet-input" rows="14" placeholder='Paste a JSON entry, array of entries, or full lorebook here...'></textarea>
+        </div>
+        <div id="snippet-preview" style="font-size:0.8rem; color:var(--text-dim);"></div>
+      </div>
+      <div class="modal-footer">
+        <div></div>
+        <div>
+          <button id="snippet-cancel">Cancel</button>
+          <button id="snippet-add" class="btn-primary">Add Entries</button>
+        </div>
+      </div>
     </div>
   </div>
 

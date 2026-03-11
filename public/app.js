@@ -110,6 +110,7 @@
     $('btn-find-replace').disabled = !has;
     $('btn-bulk-retag').disabled = !has;
     $('btn-reindex').disabled = !has;
+    $('btn-code-editor').disabled = !has;
   }
 
   // ---- Rendering ----
@@ -638,6 +639,195 @@
     render();
   }
 
+  // ---- Code Editor ----
+  function openCodeEditor() {
+    const panel = $('code-editor-panel');
+    if (!panel.classList.contains('hidden')) {
+      panel.classList.add('hidden');
+      return;
+    }
+    // Hide other panels
+    $('find-replace-panel').classList.add('hidden');
+    $('retag-panel').classList.add('hidden');
+    $('reindex-panel').classList.add('hidden');
+
+    $('code-editor-textarea').value = JSON.stringify(entries, null, 2);
+    $('code-editor-status').textContent = `${entries.length} entries`;
+    $('code-editor-textarea').classList.remove('json-error');
+    panel.classList.remove('hidden');
+  }
+
+  function formatCodeEditor() {
+    const ta = $('code-editor-textarea');
+    try {
+      const data = JSON.parse(ta.value);
+      ta.value = JSON.stringify(data, null, 2);
+      ta.classList.remove('json-error');
+      $('code-editor-status').textContent = 'Formatted';
+    } catch (e) {
+      ta.classList.add('json-error');
+      $('code-editor-status').textContent = 'Invalid JSON: ' + e.message;
+    }
+  }
+
+  function applyCodeEditor() {
+    const ta = $('code-editor-textarea');
+    let data;
+    try {
+      data = JSON.parse(ta.value);
+    } catch (e) {
+      ta.classList.add('json-error');
+      $('code-editor-status').textContent = 'Invalid JSON: ' + e.message;
+      return;
+    }
+
+    if (!Array.isArray(data)) {
+      ta.classList.add('json-error');
+      $('code-editor-status').textContent = 'Expected a JSON array of entries';
+      return;
+    }
+
+    pushUndo();
+    entries = data;
+    selectedIndices.clear();
+    $('code-editor-status').textContent = `Applied ${entries.length} entries`;
+    ta.classList.remove('json-error');
+    render();
+  }
+
+  // ---- Snippet Import ----
+  function normalizeSnippetEntry(raw, idx) {
+    // If it looks like a SillyTavern entry (has uid/comment but no name), convert it
+    if (raw.uid != null && !raw.name && raw.comment != null) {
+      const ext = raw.extensions || {};
+      const keys = Array.isArray(raw.key) ? raw.key : (typeof raw.key === 'string' ? raw.key.split(',').map(k => k.trim()).filter(Boolean) : []);
+      return {
+        activationMode: ext.janitor_activationMode || 'standard',
+        activationScript: '',
+        case_sensitive: raw.caseSensitive || false,
+        category: ext.janitor_category || 'character',
+        comment: '',
+        constant: raw.constant || false,
+        content: raw.content || '',
+        enabled: !raw.disable,
+        extensions: {},
+        groupWeight: raw.groupWeight || 100,
+        id: ext.janitor_id || `snippet-${String(entries.length + idx + 1).padStart(4, '0')}`,
+        inclusionGroupRaw: raw.group || '',
+        insertion_order: raw.order != null ? raw.order : ((entries.length + idx + 1) * 100),
+        key: keys,
+        keyMatchPriority: false,
+        keysecondary: raw.keysecondary || [],
+        keysecondaryRaw: Array.isArray(raw.keysecondary) ? raw.keysecondary.join(', ') : '',
+        keysRaw: keys.join(', '),
+        matchWholeWords: raw.matchWholeWords != null ? raw.matchWholeWords : true,
+        minMessages: 0,
+        name: raw.comment || `Entry ${entries.length + idx + 1}`,
+        prioritizeInclusion: false,
+        priority: ext.janitor_priority || (entries.length + idx + 1),
+        probability: raw.probability != null ? raw.probability : 100,
+        selectiveLogic: raw.selectiveLogic || 0,
+        tags: ext.janitor_tags || [],
+        keywordsRaw: keys.join(', ')
+      };
+    }
+
+    // Already JanitorAI format or close enough — fill in missing fields
+    return {
+      activationMode: raw.activationMode || 'standard',
+      activationScript: raw.activationScript || '',
+      case_sensitive: raw.case_sensitive || false,
+      category: raw.category || '',
+      comment: raw.comment || '',
+      constant: raw.constant || false,
+      content: raw.content || '',
+      enabled: raw.enabled !== false,
+      extensions: raw.extensions || {},
+      groupWeight: raw.groupWeight || 100,
+      id: raw.id || `snippet-${String(entries.length + idx + 1).padStart(4, '0')}`,
+      inclusionGroupRaw: raw.inclusionGroupRaw || '',
+      insertion_order: raw.insertion_order != null ? raw.insertion_order : ((entries.length + idx + 1) * 100),
+      key: raw.key || [],
+      keyMatchPriority: raw.keyMatchPriority || false,
+      keysecondary: raw.keysecondary || [],
+      keysecondaryRaw: raw.keysecondaryRaw || (raw.keysecondary || []).join(', '),
+      keysRaw: raw.keysRaw || (raw.key || []).join(', '),
+      matchWholeWords: raw.matchWholeWords != null ? raw.matchWholeWords : true,
+      minMessages: raw.minMessages || 0,
+      name: raw.name || `Entry ${entries.length + idx + 1}`,
+      prioritizeInclusion: raw.prioritizeInclusion || false,
+      priority: raw.priority != null ? raw.priority : (entries.length + idx + 1),
+      probability: raw.probability != null ? raw.probability : 100,
+      selectiveLogic: raw.selectiveLogic || 0,
+      tags: raw.tags || [],
+      keywordsRaw: raw.keywordsRaw || (raw.key || []).join(', ')
+    };
+  }
+
+  function parseSnippet(text) {
+    const data = JSON.parse(text);
+
+    // Full lorebook (SillyTavern format)
+    if (data.entries && typeof data.entries === 'object' && !Array.isArray(data.entries)) {
+      return Object.values(data.entries);
+    }
+    // Array of entries
+    if (Array.isArray(data)) {
+      return data;
+    }
+    // Single entry object (must have at least content or name)
+    if (typeof data === 'object' && (data.content != null || data.name != null || data.comment != null)) {
+      return [data];
+    }
+    throw new Error('Unrecognized format. Expected an entry object, array of entries, or a lorebook.');
+  }
+
+  function openSnippetModal() {
+    $('snippet-input').value = '';
+    $('snippet-preview').textContent = '';
+    $('snippet-modal').classList.remove('hidden');
+    $('snippet-input').focus();
+  }
+
+  function previewSnippet() {
+    const text = $('snippet-input').value.trim();
+    if (!text) { $('snippet-preview').textContent = ''; return; }
+    try {
+      const raw = parseSnippet(text);
+      const names = raw.slice(0, 5).map(e => e.name || e.comment || 'Unnamed').join(', ');
+      const more = raw.length > 5 ? ` and ${raw.length - 5} more` : '';
+      $('snippet-preview').textContent = `Found ${raw.length} entry/entries: ${names}${more}`;
+      $('snippet-preview').style.color = 'var(--success)';
+    } catch (e) {
+      $('snippet-preview').textContent = 'Error: ' + e.message;
+      $('snippet-preview').style.color = 'var(--accent)';
+    }
+  }
+
+  function addSnippet() {
+    const text = $('snippet-input').value.trim();
+    if (!text) return;
+
+    let rawEntries;
+    try {
+      rawEntries = parseSnippet(text);
+    } catch (e) {
+      alert('Invalid snippet: ' + e.message);
+      return;
+    }
+
+    pushUndo();
+    const normalized = rawEntries.map((e, i) => normalizeSnippetEntry(e, i));
+    entries.push(...normalized);
+
+    if (!sourceFormat) sourceFormat = 'janitor';
+
+    $('snippet-modal').classList.add('hidden');
+    $('snippet-input').value = '';
+    render();
+    showAutosaveStatus(`Added ${normalized.length} entries`);
+  }
+
   // ---- Restart Workspace ----
   function restartWorkspace() {
     if (!confirm('Clear everything and start fresh? This cannot be undone.')) return;
@@ -725,18 +915,21 @@
       $('find-replace-panel').classList.toggle('hidden');
       $('retag-panel').classList.add('hidden');
       $('reindex-panel').classList.add('hidden');
+      $('code-editor-panel').classList.add('hidden');
     });
 
     $('btn-bulk-retag').addEventListener('click', () => {
       $('retag-panel').classList.toggle('hidden');
       $('find-replace-panel').classList.add('hidden');
       $('reindex-panel').classList.add('hidden');
+      $('code-editor-panel').classList.add('hidden');
     });
 
     $('btn-reindex').addEventListener('click', () => {
       $('reindex-panel').classList.toggle('hidden');
       $('find-replace-panel').classList.add('hidden');
       $('retag-panel').classList.add('hidden');
+      $('code-editor-panel').classList.add('hidden');
     });
 
     // Close buttons
@@ -777,6 +970,29 @@
       renderFilters();
       renderEntries();
     });
+
+    // Code Editor
+    $('btn-code-editor').addEventListener('click', openCodeEditor);
+    $('code-editor-format').addEventListener('click', formatCodeEditor);
+    $('code-editor-apply').addEventListener('click', applyCodeEditor);
+    $('code-editor-textarea').addEventListener('input', () => {
+      const ta = $('code-editor-textarea');
+      try {
+        const data = JSON.parse(ta.value);
+        ta.classList.remove('json-error');
+        $('code-editor-status').textContent = Array.isArray(data) ? `${data.length} entries` : 'Valid JSON';
+      } catch {
+        ta.classList.add('json-error');
+        $('code-editor-status').textContent = 'Invalid JSON';
+      }
+    });
+
+    // Snippet Import
+    $('btn-snippet').addEventListener('click', openSnippetModal);
+    $('snippet-close').addEventListener('click', () => $('snippet-modal').classList.add('hidden'));
+    $('snippet-cancel').addEventListener('click', () => $('snippet-modal').classList.add('hidden'));
+    $('snippet-add').addEventListener('click', addSnippet);
+    $('snippet-input').addEventListener('input', previewSnippet);
 
     // Restart
     $('btn-restart').addEventListener('click', restartWorkspace);

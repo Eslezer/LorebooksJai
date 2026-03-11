@@ -243,6 +243,32 @@ button:disabled {
   color: var(--text-dim);
 }
 
+/* Code Editor */
+.code-editor-textarea {
+  width: 100%;
+  min-height: 300px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #0a0a1a;
+  color: #a8d8a8;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  resize: vertical;
+  tab-size: 2;
+}
+
+.code-editor-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.code-editor-textarea.json-error {
+  border-color: #e74c3c;
+  box-shadow: 0 0 0 1px #e74c3c;
+}
+
 /* Toolbar link */
 .toolbar-link {
   display: inline-flex;
