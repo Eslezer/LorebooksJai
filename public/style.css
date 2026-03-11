@@ -243,6 +243,55 @@ button:disabled {
   color: var(--text-dim);
 }
 
+/* Toolbar link */
+.toolbar-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 0.85rem;
+  text-decoration: none;
+  transition: all 0.15s;
+}
+
+.toolbar-link:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Selection Bar */
+.selection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 24px;
+  background: linear-gradient(90deg, rgba(233,69,96,0.12), rgba(15,52,96,0.3));
+  border-bottom: 1px solid var(--accent);
+}
+
+.selection-info {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 100px;
+}
+
+.selection-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.selection-actions button {
+  padding: 5px 10px;
+  font-size: 0.8rem;
+}
+
 /* Entry List */
 .main-content {
   padding: 16px 24px;

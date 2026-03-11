@@ -131,6 +131,7 @@
 
     renderFilters();
     renderEntries();
+    updateSelectionBar();
   }
 
   function renderFilters() {
@@ -543,6 +544,95 @@
     alert('IDs, insertion order, and priorities reindexed.');
   }
 
+  // ---- Mass Selection ----
+  function updateSelectionBar() {
+    const bar = $('selection-bar');
+    if (!entries.length) {
+      bar.classList.add('hidden');
+      return;
+    }
+    bar.classList.remove('hidden');
+    $('selection-count').textContent = `${selectedIndices.size} selected`;
+  }
+
+  function selectAllVisible() {
+    const indices = getFilteredIndices();
+    indices.forEach(i => selectedIndices.add(i));
+    renderEntries();
+    updateSelectionBar();
+  }
+
+  function deselectAll() {
+    selectedIndices.clear();
+    renderEntries();
+    updateSelectionBar();
+  }
+
+  let massModalAction = null;
+
+  function openMassModal(action, title, label, placeholder) {
+    massModalAction = action;
+    $('mass-modal-title').textContent = title;
+    $('mass-modal-label').textContent = label;
+    $('mass-modal-input').placeholder = placeholder || 'value1, value2, ...';
+    $('mass-modal-input').value = '';
+    $('mass-modal').classList.remove('hidden');
+    $('mass-modal-input').focus();
+  }
+
+  function closeMassModal() {
+    $('mass-modal').classList.add('hidden');
+    massModalAction = null;
+  }
+
+  function applyMassAction() {
+    if (!massModalAction || !selectedIndices.size) return;
+    const values = $('mass-modal-input').value.split(',').map(v => v.trim()).filter(Boolean);
+    if (!values.length) return;
+
+    pushUndo();
+
+    selectedIndices.forEach(i => {
+      const e = entries[i];
+      if (!e) return;
+
+      switch (massModalAction) {
+        case 'add-tags':
+          if (!e.tags) e.tags = [];
+          values.forEach(v => { if (!e.tags.includes(v)) e.tags.push(v); });
+          break;
+        case 'remove-tags':
+          if (e.tags) e.tags = e.tags.filter(t => !values.includes(t));
+          break;
+        case 'add-keys':
+          if (!e.key) e.key = [];
+          values.forEach(v => { if (!e.key.includes(v)) e.key.push(v); });
+          e.keysRaw = e.key.join(', ');
+          e.keywordsRaw = e.keysRaw;
+          break;
+        case 'remove-keys':
+          if (e.key) e.key = e.key.filter(k => !values.includes(k));
+          e.keysRaw = (e.key || []).join(', ');
+          e.keywordsRaw = e.keysRaw;
+          break;
+      }
+    });
+
+    closeMassModal();
+    render();
+  }
+
+  function massDelete() {
+    if (!selectedIndices.size) return;
+    if (!confirm(`Delete ${selectedIndices.size} selected entries?`)) return;
+    pushUndo();
+    // Delete in reverse order to preserve indices
+    const sorted = [...selectedIndices].sort((a, b) => b - a);
+    sorted.forEach(i => entries.splice(i, 1));
+    selectedIndices.clear();
+    render();
+  }
+
   // ---- Drag & Drop ----
   let dragIndex = null;
 
@@ -671,6 +761,19 @@
       renderEntries();
     });
 
+    // Mass Selection
+    $('sel-all').addEventListener('click', selectAllVisible);
+    $('sel-none').addEventListener('click', deselectAll);
+    $('sel-delete').addEventListener('click', massDelete);
+    $('sel-add-tags').addEventListener('click', () => openMassModal('add-tags', 'Add Tags to Selected', 'Tags to add (comma separated)', 'tag1, tag2, ...'));
+    $('sel-remove-tags').addEventListener('click', () => openMassModal('remove-tags', 'Remove Tags from Selected', 'Tags to remove (comma separated)', 'tag1, tag2, ...'));
+    $('sel-add-keys').addEventListener('click', () => openMassModal('add-keys', 'Add Keywords to Selected', 'Keywords to add (comma separated)', 'keyword1, keyword2, ...'));
+    $('sel-remove-keys').addEventListener('click', () => openMassModal('remove-keys', 'Remove Keywords from Selected', 'Keywords to remove (comma separated)', 'keyword1, keyword2, ...'));
+    $('mass-modal-close').addEventListener('click', closeMassModal);
+    $('mass-modal-cancel').addEventListener('click', closeMassModal);
+    $('mass-modal-apply').addEventListener('click', applyMassAction);
+    $('mass-modal-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') applyMassAction(); });
+
     // Entry list delegation
     entryListEl.addEventListener('click', (e) => {
       const btn = e.target.closest('button');
@@ -680,6 +783,7 @@
         const idx = parseInt(checkbox.dataset.index);
         if (checkbox.checked) selectedIndices.add(idx);
         else selectedIndices.delete(idx);
+        updateSelectionBar();
         return;
       }
 
