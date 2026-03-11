@@ -116,12 +116,17 @@
   function render() {
     updateToolbar();
     // Autosave on every render (which follows every mutation)
-    if (entries.length) saveToLocal();
+    if (entries.length) {
+      saveToLocal();
+    } else {
+      clearLocalSave();
+    }
 
     if (!entries.length) {
       emptyStateEl.classList.remove('hidden');
       entryListEl.classList.add('hidden');
       filterBar.classList.add('hidden');
+      $('selection-bar').classList.add('hidden');
       return;
     }
 
@@ -633,6 +638,18 @@
     render();
   }
 
+  // ---- Restart Workspace ----
+  function restartWorkspace() {
+    if (!confirm('Clear everything and start fresh? This cannot be undone.')) return;
+    entries = [];
+    sourceFormat = null;
+    selectedIndices.clear();
+    undoStack = [];
+    activeTagFilter = null;
+    clearLocalSave();
+    render();
+  }
+
   // ---- Drag & Drop ----
   let dragIndex = null;
 
@@ -760,6 +777,9 @@
       renderFilters();
       renderEntries();
     });
+
+    // Restart
+    $('btn-restart').addEventListener('click', restartWorkspace);
 
     // Mass Selection
     $('sel-all').addEventListener('click', selectAllVisible);
