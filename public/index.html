@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lorebook Editor</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Lorebook Editor</h1>
+    <p class="subtitle">JanitorAI & SillyTavern Lorebook Manager</p>
+  </header>
+
+  <div class="toolbar">
+    <div class="toolbar-group">
+      <button id="btn-import" title="Import lorebook file">Import File</button>
+      <button id="btn-paste" title="Paste JSON from clipboard">Paste JSON</button>
+      <button id="btn-new-entry" title="Add new entry" disabled>+ New Entry</button>
+    </div>
+    <div class="toolbar-group">
+      <button id="btn-export-janitor" disabled>Export JanitorAI</button>
+      <button id="btn-export-st" disabled>Export SillyTavern</button>
+    </div>
+    <div class="toolbar-group">
+      <button id="btn-find-replace" disabled>Find & Replace</button>
+      <button id="btn-bulk-retag" disabled>Bulk Retag</button>
+      <button id="btn-reindex" disabled>Reindex IDs</button>
+    </div>
+  </div>
+
+  <!-- Find & Replace Panel -->
+  <div id="find-replace-panel" class="panel hidden">
+    <div class="panel-header">
+      <h3>Find & Replace</h3>
+      <button class="close-btn" data-close="find-replace-panel">&times;</button>
+    </div>
+    <div class="panel-body">
+      <div class="fr-row">
+        <label>Find:</label>
+        <input type="text" id="fr-find" placeholder="Search text...">
+      </div>
+      <div class="fr-row">
+        <label>Replace:</label>
+        <input type="text" id="fr-replace" placeholder="Replacement text...">
+      </div>
+      <div class="fr-row">
+        <label class="checkbox-label"><input type="checkbox" id="fr-case"> Case sensitive</label>
+        <label class="checkbox-label"><input type="checkbox" id="fr-content" checked> Content</label>
+        <label class="checkbox-label"><input type="checkbox" id="fr-names" checked> Names</label>
+        <label class="checkbox-label"><input type="checkbox" id="fr-keys" checked> Keywords</label>
+      </div>
+      <div class="fr-row">
+        <button id="fr-preview">Preview</button>
+        <button id="fr-apply" class="btn-danger">Replace All</button>
+        <span id="fr-count"></span>
+      </div>
+      <div id="fr-results" class="fr-results"></div>
+    </div>
+  </div>
+
+  <!-- Bulk Retag Panel -->
+  <div id="retag-panel" class="panel hidden">
+    <div class="panel-header">
+      <h3>Bulk Retag</h3>
+      <button class="close-btn" data-close="retag-panel">&times;</button>
+    </div>
+    <div class="panel-body">
+      <div class="fr-row">
+        <label>Add tag:</label>
+        <input type="text" id="retag-add" placeholder="Tag to add...">
+      </div>
+      <div class="fr-row">
+        <label>Remove tag:</label>
+        <input type="text" id="retag-remove" placeholder="Tag to remove...">
+      </div>
+      <div class="fr-row">
+        <label class="checkbox-label"><input type="checkbox" id="retag-selected-only"> Selected entries only</label>
+      </div>
+      <div class="fr-row">
+        <button id="retag-apply">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reindex Panel -->
+  <div id="reindex-panel" class="panel hidden">
+    <div class="panel-header">
+      <h3>Reindex IDs & Order</h3>
+      <button class="close-btn" data-close="reindex-panel">&times;</button>
+    </div>
+    <div class="panel-body">
+      <div class="fr-row">
+        <label>ID prefix:</label>
+        <input type="text" id="reindex-prefix" placeholder="e.g. ch" value="ch">
+      </div>
+      <div class="fr-row">
+        <label>Start number:</label>
+        <input type="number" id="reindex-start" value="1" min="0">
+      </div>
+      <div class="fr-row">
+        <label>Order step:</label>
+        <input type="number" id="reindex-step" value="100" min="1">
+      </div>
+      <div class="fr-row">
+        <label class="checkbox-label"><input type="checkbox" id="reindex-use-name" checked> Use name in ID slug</label>
+      </div>
+      <div class="fr-row">
+        <button id="reindex-apply">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filter Bar -->
+  <div id="filter-bar" class="filter-bar hidden">
+    <div class="filter-group">
+      <label>Filter by tag:</label>
+      <div id="tag-filters" class="tag-filters"></div>
+    </div>
+    <div class="filter-group">
+      <label>Search:</label>
+      <input type="text" id="filter-search" placeholder="Search entries by name, content, or keywords...">
+    </div>
+    <div class="filter-group">
+      <label>Category:</label>
+      <select id="filter-category">
+        <option value="">All</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <span id="entry-count"></span>
+    </div>
+  </div>
+
+  <!-- Entry List -->
+  <div id="main-content" class="main-content">
+    <div id="empty-state" class="empty-state">
+      <h2>No lorebook loaded</h2>
+      <p>Import a JSON file or paste lorebook data to get started.</p>
+      <p class="formats">Supports: JanitorAI (.json) and SillyTavern (.json) formats</p>
+    </div>
+    <div id="entry-list" class="entry-list hidden"></div>
+  </div>
+
+  <!-- Entry Editor Modal -->
+  <div id="editor-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="editor-title">Edit Entry</h3>
+        <button class="close-btn" id="editor-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="ed-name">Name</label>
+            <input type="text" id="ed-name">
+          </div>
+          <div class="form-group">
+            <label for="ed-id">ID</label>
+            <input type="text" id="ed-id">
+          </div>
+          <div class="form-group">
+            <label for="ed-category">Category</label>
+            <input type="text" id="ed-category">
+          </div>
+          <div class="form-group">
+            <label for="ed-priority">Priority</label>
+            <input type="number" id="ed-priority" min="0">
+          </div>
+          <div class="form-group">
+            <label for="ed-insertion-order">Insertion Order</label>
+            <input type="number" id="ed-insertion-order" min="0">
+          </div>
+          <div class="form-group">
+            <label for="ed-probability">Probability (%)</label>
+            <input type="number" id="ed-probability" min="0" max="100">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="ed-keywords">Keywords (comma separated)</label>
+          <input type="text" id="ed-keywords">
+        </div>
+        <div class="form-group">
+          <label for="ed-secondary-keys">Secondary Keys (comma separated)</label>
+          <input type="text" id="ed-secondary-keys">
+        </div>
+        <div class="form-group">
+          <label for="ed-tags">Tags (comma separated)</label>
+          <input type="text" id="ed-tags">
+        </div>
+        <div class="form-group">
+          <label for="ed-content">Content</label>
+          <textarea id="ed-content" rows="12"></textarea>
+        </div>
+        <div class="form-row">
+          <label class="checkbox-label"><input type="checkbox" id="ed-enabled"> Enabled</label>
+          <label class="checkbox-label"><input type="checkbox" id="ed-constant"> Constant (always active)</label>
+          <label class="checkbox-label"><input type="checkbox" id="ed-case-sensitive"> Case sensitive</label>
+          <label class="checkbox-label"><input type="checkbox" id="ed-match-whole"> Match whole words</label>
+        </div>
+        <div class="form-group">
+          <label>Activation Mode</label>
+          <select id="ed-activation-mode">
+            <option value="standard">Standard</option>
+            <option value="constant">Constant</option>
+            <option value="script">Script</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="editor-delete" class="btn-danger">Delete Entry</button>
+        <div>
+          <button id="editor-cancel">Cancel</button>
+          <button id="editor-save" class="btn-primary">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Paste Modal -->
+  <div id="paste-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Paste Lorebook JSON</h3>
+        <button class="close-btn" id="paste-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <textarea id="paste-input" rows="15" placeholder="Paste your lorebook JSON here..."></textarea>
+      </div>
+      <div class="modal-footer">
+        <button id="paste-cancel">Cancel</button>
+        <button id="paste-load" class="btn-primary">Load</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden file input -->
+  <input type="file" id="file-input" accept=".json" style="display:none">
+
+  <script src="app.js"></script>
+</body>
+</html>
