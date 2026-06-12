@@ -22,6 +22,7 @@
     <div class="toolbar-group">
       <button id="btn-export-janitor" disabled>Export JanitorAI</button>
       <button id="btn-export-st" disabled>Export SillyTavern</button>
+      <button id="btn-export-script" disabled title="Export as a JanitorAI lorebook script (.js)">Export JAI Script</button>
     </div>
     <div class="toolbar-group">
       <button id="btn-find-replace" disabled>Find & Replace</button>
@@ -162,7 +163,7 @@
       </div>
       <div class="modal-body">
         <p style="font-size:0.85rem; color:var(--text-dim); margin-bottom:12px;">
-          Paste a single entry object, an array of entries, or a full lorebook. Entries will be added to your current lorebook.
+          Paste a single entry object, an array of entries, a full lorebook, or a JanitorAI lorebook script. Entries will be added to your current lorebook.
         </p>
         <div class="form-group">
           <label for="snippet-input">JSON Snippet</label>
@@ -224,7 +225,7 @@
     <div id="empty-state" class="empty-state">
       <h2>No lorebook loaded</h2>
       <p>Import a JSON file or paste lorebook data to get started.</p>
-      <p class="formats">Supports: JanitorAI (.json) and SillyTavern (.json) formats</p>
+      <p class="formats">Supports: JanitorAI (.json), SillyTavern (.json), and JanitorAI lorebook scripts (.js)</p>
     </div>
     <div id="entry-list" class="entry-list hidden"></div>
   </div>
@@ -261,6 +262,10 @@
           <div class="form-group">
             <label for="ed-probability">Probability (%)</label>
             <input type="number" id="ed-probability" min="0" max="100">
+          </div>
+          <div class="form-group">
+            <label for="ed-min-messages" title="Minimum chat messages before this entry can activate (SillyTavern: Delay)">Min Messages</label>
+            <input type="number" id="ed-min-messages" min="0">
           </div>
         </div>
         <div class="form-group">
@@ -308,11 +313,11 @@
   <div id="paste-modal" class="modal hidden">
     <div class="modal-content">
       <div class="modal-header">
-        <h3>Paste Lorebook JSON</h3>
+        <h3>Paste Lorebook JSON or Script</h3>
         <button class="close-btn" id="paste-close">&times;</button>
       </div>
       <div class="modal-body">
-        <textarea id="paste-input" rows="15" placeholder="Paste your lorebook JSON here..."></textarea>
+        <textarea id="paste-input" rows="15" placeholder="Paste lorebook JSON or a JanitorAI lorebook script here..."></textarea>
       </div>
       <div class="modal-footer">
         <button id="paste-cancel">Cancel</button>
@@ -322,7 +327,7 @@
   </div>
 
   <!-- Hidden file input -->
-  <input type="file" id="file-input" accept=".json" style="display:none">
+  <input type="file" id="file-input" accept=".json,.js,.txt" style="display:none">
 
   <script src="app.js"></script>
 </body>

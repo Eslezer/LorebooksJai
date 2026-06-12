@@ -80,7 +80,11 @@
   }
 
   function downloadJSON(data, filename) {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    downloadText(JSON.stringify(data, null, 2), filename, 'application/json');
+  }
+
+  function downloadText(text, filename, mime) {
+    const blob = new Blob([text], { type: mime || 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -107,6 +111,7 @@
     $('btn-new-entry').disabled = false;
     $('btn-export-janitor').disabled = !has;
     $('btn-export-st').disabled = !has;
+    $('btn-export-script').disabled = !has;
     $('btn-find-replace').disabled = !has;
     $('btn-bulk-retag').disabled = !has;
     $('btn-reindex').disabled = !has;
@@ -209,10 +214,160 @@
     }).join('');
   }
 
+  // ---- JanitorAI Script Parsing ----
+  // Extracts a balanced [...] array literal starting at `start` (position of '['),
+  // skipping strings, template literals and comments.
+  function extractBalancedArray(text, start) {
+    let depth = 0;
+    let i = start;
+    while (i < text.length) {
+      const ch = text[i];
+      if (ch === '"' || ch === "'" || ch === '`') {
+        const quote = ch;
+        i++;
+        while (i < text.length && text[i] !== quote) {
+          if (text[i] === '\\') i++;
+          i++;
+        }
+      } else if (ch === '/' && text[i + 1] === '/') {
+        while (i < text.length && text[i] !== '\n') i++;
+      } else if (ch === '/' && text[i + 1] === '*') {
+        i += 2;
+        while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) i++;
+        i++;
+      } else if (ch === '[' || ch === '{' || ch === '(') {
+        depth++;
+      } else if (ch === ']' || ch === '}' || ch === ')') {
+        depth--;
+        if (depth === 0) return text.slice(start, i + 1);
+      }
+      i++;
+    }
+    return null;
+  }
+
+  // Finds the lore entry array in a JanitorAI script and returns the raw
+  // entry objects, or null if the text doesn't look like a script.
+  function tryParseScript(text) {
+    const entryKeyRe = /["']?\b(keywords|keys)["']?\s*:/;
+    if (!entryKeyRe.test(text)) return null;
+
+    const assignRe = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\[/g;
+    let m;
+    let best = null;
+    while ((m = assignRe.exec(text)) !== null) {
+      const arrText = extractBalancedArray(text, assignRe.lastIndex - 1);
+      if (!arrText || !entryKeyRe.test(arrText)) continue;
+      const score = /lore|entr|book/i.test(m[1]) ? 2 : 1;
+      if (!best || score > best.score || (score === best.score && arrText.length > best.text.length)) {
+        best = { text: arrText, score };
+      }
+    }
+    if (!best) return null;
+
+    let arr;
+    try {
+      arr = new Function('"use strict"; return (' + best.text + ');')();
+    } catch (e) {
+      throw new Error('Found a lore array in the script but could not parse it: ' + e.message);
+    }
+    if (!Array.isArray(arr) || !arr.length) return null;
+    return arr;
+  }
+
+  function looksLikeScriptEntry(raw) {
+    return raw && Array.isArray(raw.keywords) && raw.content == null &&
+      (raw.personality != null || raw.scenario != null || raw.triggers != null || raw.minMessages != null);
+  }
+
+  // Converts one raw script entry ({keywords, priority, personality, ...})
+  // to the internal JanitorAI entry format.
+  function scriptEntryToInternal(raw, idx) {
+    const keys = (raw.keywords || raw.keys || raw.key || []).map(String);
+    const personality = String(raw.personality || '').replace(/^[\s,;]+/, '').trim();
+    const scenario = String(raw.scenario || '').trim();
+
+    let content = raw.content || '';
+    if (!content) {
+      const parts = [];
+      if (personality) parts.push('{{char}} is ' + personality.replace(/\.$/, '') + '.');
+      if (scenario) parts.push(scenario);
+      content = parts.join('\n');
+    }
+
+    // Map script filters to SillyTavern-style secondary keys.
+    // selectiveLogic: 0 = AND ANY, 2 = NOT ANY, 3 = AND ALL
+    let keysecondary = [];
+    let selectiveLogic = 0;
+    const filters = raw.filters || null;
+    if (filters) {
+      if (Array.isArray(filters.requiresAll) && filters.requiresAll.length) {
+        keysecondary = filters.requiresAll.map(String);
+        selectiveLogic = 3;
+      } else if (Array.isArray(filters.requiresAny) && filters.requiresAny.length) {
+        keysecondary = filters.requiresAny.map(String);
+        selectiveLogic = 0;
+      } else if (Array.isArray(filters.notWith) && filters.notWith.length) {
+        keysecondary = filters.notWith.map(String);
+        selectiveLogic = 2;
+      }
+    }
+
+    // Probability in scripts is a 0–1 fraction; internally we use percent.
+    let probability = 100;
+    if (raw.probability != null) {
+      probability = raw.probability <= 1 ? Math.round(raw.probability * 100) : Math.round(raw.probability);
+    }
+
+    const firstKey = keys[0] || 'entry';
+    const name = raw.name || (firstKey.charAt(0).toUpperCase() + firstKey.slice(1)) + (raw.category ? ` (${raw.category})` : '');
+
+    const ext = {};
+    const script = {};
+    if (personality) script.personality = raw.personality;
+    if (scenario) script.scenario = raw.scenario;
+    if (Array.isArray(raw.triggers) && raw.triggers.length) script.triggers = raw.triggers;
+    if (filters) script.filters = filters;
+    if (Object.keys(script).length) ext.script = script;
+
+    return {
+      activationMode: 'standard',
+      activationScript: '',
+      case_sensitive: false,
+      category: raw.category || '',
+      comment: '',
+      constant: raw.constant || false,
+      content: content,
+      enabled: raw.enabled !== false,
+      extensions: ext,
+      groupWeight: 100,
+      id: `script-${String(idx + 1).padStart(4, '0')}-${slugify(firstKey)}`,
+      inclusionGroupRaw: '',
+      insertion_order: (raw.priority != null ? raw.priority : idx + 1) * 100,
+      key: keys,
+      keyMatchPriority: false,
+      keysecondary: keysecondary,
+      keysecondaryRaw: keysecondary.join(', '),
+      keysRaw: keys.join(', '),
+      matchWholeWords: false,
+      minMessages: raw.minMessages || 0,
+      name: name,
+      prioritizeInclusion: false,
+      priority: raw.priority != null ? raw.priority : idx + 1,
+      probability: probability,
+      selectiveLogic: selectiveLogic,
+      tags: raw.category ? [raw.category] : [],
+      keywordsRaw: keys.join(', ')
+    };
+  }
+
   // ---- Import / Load ----
   function loadData(data, format) {
     if (format === 'janitor') {
       entries = data;
+    } else if (format === 'script') {
+      entries = data.map((raw, idx) => scriptEntryToInternal(raw, idx));
+      format = 'janitor';
     } else if (format === 'sillytavern') {
       // Convert to JanitorAI internal format
       const stEntries = data.entries || {};
@@ -228,7 +383,7 @@
           constant: entry.constant || false,
           content: entry.content || '',
           enabled: !entry.disable,
-          extensions: {},
+          extensions: ext.janitor_script ? { script: ext.janitor_script } : {},
           groupWeight: entry.groupWeight || 100,
           id: ext.janitor_id || `entry-${String(idx + 1).padStart(4, '0')}`,
           inclusionGroupRaw: entry.group || '',
@@ -239,7 +394,7 @@
           keysecondaryRaw: Array.isArray(entry.keysecondary) ? entry.keysecondary.join(', ') : '',
           keysRaw: keys.join(', '),
           matchWholeWords: entry.matchWholeWords != null ? entry.matchWholeWords : true,
-          minMessages: 0,
+          minMessages: entry.delay || 0,
           name: entry.comment || `Entry ${idx + 1}`,
           prioritizeInclusion: false,
           priority: ext.janitor_priority || (idx + 1),
@@ -260,17 +415,35 @@
     let data;
     try {
       data = JSON.parse(text);
-    } catch (e) {
-      alert('Invalid JSON: ' + e.message);
+    } catch (jsonErr) {
+      // Not JSON — maybe a JanitorAI script with an embedded lore array
+      let scriptEntries;
+      try {
+        scriptEntries = tryParseScript(text);
+      } catch (scriptErr) {
+        alert(scriptErr.message);
+        return;
+      }
+      if (scriptEntries) {
+        loadData(scriptEntries, 'script');
+        showAutosaveStatus(`Imported ${scriptEntries.length} entries from script`);
+        return;
+      }
+      alert('Invalid JSON: ' + jsonErr.message);
       return;
     }
 
     if (Array.isArray(data)) {
-      loadData(data, 'janitor');
+      // Could be a JanitorAI lorebook export or an array of script-style entries
+      if (data.every(looksLikeScriptEntry)) {
+        loadData(data, 'script');
+      } else {
+        loadData(data, 'janitor');
+      }
     } else if (data.entries && typeof data.entries === 'object') {
       loadData(data, 'sillytavern');
     } else {
-      alert('Unrecognized lorebook format. Expected a JanitorAI array or SillyTavern object with "entries".');
+      alert('Unrecognized lorebook format. Expected a JanitorAI array, SillyTavern object with "entries", or a JanitorAI script.');
     }
   }
 
@@ -310,17 +483,129 @@
         automationId: '',
         role: null,
         vectorized: false,
+        sticky: 0,
+        cooldown: 0,
+        delay: entry.minMessages || 0,
         displayIndex: idx,
-        extensions: {
+        extensions: Object.assign({
           janitor_id: entry.id || '',
           janitor_category: entry.category || '',
           janitor_tags: entry.tags || [],
           janitor_priority: entry.priority || 0,
           janitor_activationMode: entry.activationMode || 'standard'
-        }
+        }, entry.extensions && entry.extensions.script ? { janitor_script: entry.extensions.script } : {})
       };
     });
     downloadJSON(stData, 'lorebook-sillytavern.json');
+  }
+
+  // ---- Export as JanitorAI Script ----
+  function exportJanitorScript() {
+    const scriptEntries = entries.filter(e => e.enabled !== false).map(e => {
+      const script = (e.extensions && e.extensions.script) || {};
+      const obj = { keywords: e.key || [] };
+      obj.priority = e.priority != null ? e.priority : 0;
+      if (e.minMessages) obj.minMessages = e.minMessages;
+      if (e.category) obj.category = e.category;
+      if (e.constant) obj.constant = true;
+      if (e.probability != null && e.probability < 100) {
+        obj.probability = Math.round(e.probability) / 100;
+      }
+
+      // Rebuild filters from stored script data or from secondary keys
+      if (script.filters) {
+        obj.filters = script.filters;
+      } else if ((e.keysecondary || []).length) {
+        if (e.selectiveLogic === 3) obj.filters = { requiresAll: e.keysecondary };
+        else if (e.selectiveLogic === 2) obj.filters = { notWith: e.keysecondary };
+        else obj.filters = { requiresAny: e.keysecondary };
+      }
+
+      if (script.personality != null) obj.personality = script.personality;
+      if (script.scenario != null) {
+        obj.scenario = script.scenario;
+      } else {
+        obj.scenario = ' ' + (e.content || '').replace(/\s*\n+\s*/g, ' ').trim();
+      }
+      if (Array.isArray(script.triggers) && script.triggers.length) obj.triggers = script.triggers;
+      return obj;
+    });
+
+    const script = `/**
+ * Lorebook Script for JanitorAI
+ * Generated by Lorebook Editor
+ * Keyword activation with priorities, filters, probability,
+ * minMessages and recursive triggers.
+ */
+
+const lastMessage = context.chat.last_message.toLowerCase();
+const messageCount = context.chat.message_count;
+
+// === LOREBOOK DATABASE ===
+const loreEntries = ${JSON.stringify(scriptEntries, null, 4)};
+
+// === ACTIVATION ENGINE ===
+const activatedEntries = [];
+const triggeredKeywords = [];
+
+function passesFilters(entry) {
+    if (!entry.filters) return true;
+    if (entry.filters.notWith &&
+        entry.filters.notWith.some(word => lastMessage.includes(word.toLowerCase()))) {
+        return false;
+    }
+    if (entry.filters.requiresAny &&
+        !entry.filters.requiresAny.some(word => lastMessage.includes(word.toLowerCase()))) {
+        return false;
+    }
+    if (entry.filters.requiresAll &&
+        !entry.filters.requiresAll.every(word => lastMessage.includes(word.toLowerCase()))) {
+        return false;
+    }
+    return true;
+}
+
+// First pass: direct keyword matches (constant entries always match)
+loreEntries.forEach(entry => {
+    if (messageCount < (entry.minMessages || 0)) return;
+    const hasKeyword = entry.constant ||
+        entry.keywords.some(keyword => lastMessage.includes(keyword.toLowerCase()));
+    if (!hasKeyword) return;
+    if (entry.probability && Math.random() > entry.probability) return;
+    if (!passesFilters(entry)) return;
+
+    activatedEntries.push(entry);
+    if (entry.triggers) {
+        entry.triggers.forEach(trigger => triggeredKeywords.push(trigger));
+    }
+});
+
+// Second pass: recursive activation via triggers from other entries
+if (triggeredKeywords.length > 0) {
+    loreEntries.forEach(entry => {
+        if (activatedEntries.includes(entry)) return;
+        if (messageCount < (entry.minMessages || 0)) return;
+        const isTriggered = entry.keywords.some(keyword =>
+            triggeredKeywords.some(trigger =>
+                keyword.toLowerCase().includes(trigger.toLowerCase()) ||
+                trigger.toLowerCase().includes(keyword.toLowerCase()))
+        );
+        if (!isTriggered) return;
+        if (entry.probability && Math.random() > entry.probability) return;
+        if (!passesFilters(entry)) return;
+        activatedEntries.push(entry);
+    });
+}
+
+// === APPLY LORE (sorted by priority, highest first) ===
+activatedEntries
+    .sort((a, b) => (b.priority || 0) - (a.priority || 0))
+    .forEach(entry => {
+        if (entry.personality) context.character.personality += entry.personality;
+        if (entry.scenario) context.character.scenario += entry.scenario;
+    });
+`;
+    downloadText(script, 'lorebook-script.js', 'text/javascript');
   }
 
   // ---- Entry Editor ----
@@ -336,6 +621,7 @@
     $('ed-priority').value = e ? e.priority || 0 : entries.length + 1;
     $('ed-insertion-order').value = e ? e.insertion_order || 0 : (entries.length + 1) * 100;
     $('ed-probability').value = e ? e.probability ?? 100 : 100;
+    $('ed-min-messages').value = e ? e.minMessages || 0 : 0;
     $('ed-keywords').value = e ? (e.keysRaw || e.key?.join(', ') || '') : '';
     $('ed-secondary-keys').value = e ? (e.keysecondaryRaw || '') : '';
     $('ed-tags').value = e ? (e.tags || []).join(', ') : '';
@@ -356,36 +642,46 @@
     const secKeys = $('ed-secondary-keys').value.split(',').map(k => k.trim()).filter(Boolean);
     const tags = $('ed-tags').value.split(',').map(t => t.trim()).filter(Boolean);
     const newPriority = parseInt($('ed-priority').value) || 0;
+    const prev = editingIndex >= 0 ? entries[editingIndex] : null;
 
     const obj = {
       activationMode: $('ed-activation-mode').value,
-      activationScript: '',
+      activationScript: prev ? prev.activationScript || '' : '',
       case_sensitive: $('ed-case-sensitive').checked,
       category: $('ed-category').value,
-      comment: '',
+      comment: prev ? prev.comment || '' : '',
       constant: $('ed-constant').checked,
       content: $('ed-content').value,
       enabled: $('ed-enabled').checked,
-      extensions: {},
-      groupWeight: 100,
+      extensions: prev ? prev.extensions || {} : {},
+      groupWeight: prev ? prev.groupWeight || 100 : 100,
       id: $('ed-id').value,
-      inclusionGroupRaw: '',
+      inclusionGroupRaw: prev ? prev.inclusionGroupRaw || '' : '',
       insertion_order: parseInt($('ed-insertion-order').value) || 0,
       key: keys,
-      keyMatchPriority: false,
+      keyMatchPriority: prev ? prev.keyMatchPriority || false : false,
       keysecondary: secKeys,
       keysecondaryRaw: secKeys.join(', '),
       keysRaw: keys.join(', '),
       matchWholeWords: $('ed-match-whole').checked,
-      minMessages: 0,
+      minMessages: parseInt($('ed-min-messages').value) || 0,
       name: $('ed-name').value,
-      prioritizeInclusion: false,
+      prioritizeInclusion: prev ? prev.prioritizeInclusion || false : false,
       priority: newPriority,
       probability: parseInt($('ed-probability').value) || 100,
-      selectiveLogic: 0,
+      selectiveLogic: prev ? prev.selectiveLogic || 0 : 0,
       tags: tags,
       keywordsRaw: keys.join(', ')
     };
+
+    // If the content was edited, the stored script personality/scenario split
+    // is stale — drop it so script export uses the new content instead.
+    if (prev && obj.content !== prev.content && obj.extensions.script) {
+      const script = Object.assign({}, obj.extensions.script);
+      delete script.personality;
+      delete script.scenario;
+      obj.extensions = Object.assign({}, obj.extensions, { script });
+    }
 
     if (editingIndex >= 0) {
       const oldPriority = entries[editingIndex].priority;
@@ -697,6 +993,11 @@
 
   // ---- Snippet Import ----
   function normalizeSnippetEntry(raw, idx) {
+    // Script-style entry ({keywords, personality, scenario, ...})
+    if (looksLikeScriptEntry(raw)) {
+      return scriptEntryToInternal(raw, entries.length + idx);
+    }
+
     // If it looks like a SillyTavern entry (has uid/comment but no name), convert it
     if (raw.uid != null && !raw.name && raw.comment != null) {
       const ext = raw.extensions || {};
@@ -710,7 +1011,7 @@
         constant: raw.constant || false,
         content: raw.content || '',
         enabled: !raw.disable,
-        extensions: {},
+        extensions: ext.janitor_script ? { script: ext.janitor_script } : {},
         groupWeight: raw.groupWeight || 100,
         id: ext.janitor_id || `snippet-${String(entries.length + idx + 1).padStart(4, '0')}`,
         inclusionGroupRaw: raw.group || '',
@@ -721,7 +1022,7 @@
         keysecondaryRaw: Array.isArray(raw.keysecondary) ? raw.keysecondary.join(', ') : '',
         keysRaw: keys.join(', '),
         matchWholeWords: raw.matchWholeWords != null ? raw.matchWholeWords : true,
-        minMessages: 0,
+        minMessages: raw.delay || 0,
         name: raw.comment || `Entry ${entries.length + idx + 1}`,
         prioritizeInclusion: false,
         priority: ext.janitor_priority || (entries.length + idx + 1),
@@ -765,7 +1066,15 @@
   }
 
   function parseSnippet(text) {
-    const data = JSON.parse(text);
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (jsonErr) {
+      // Not JSON — try parsing as a JanitorAI script
+      const scriptEntries = tryParseScript(text);
+      if (scriptEntries) return scriptEntries;
+      throw jsonErr;
+    }
 
     // Full lorebook (SillyTavern format)
     if (data.entries && typeof data.entries === 'object' && !Array.isArray(data.entries)) {
@@ -909,6 +1218,7 @@
     // Export
     $('btn-export-janitor').addEventListener('click', exportJanitor);
     $('btn-export-st').addEventListener('click', exportSillyTavern);
+    $('btn-export-script').addEventListener('click', exportJanitorScript);
 
     // Panels
     $('btn-find-replace').addEventListener('click', () => {

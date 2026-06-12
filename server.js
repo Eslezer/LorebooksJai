@@ -43,14 +43,17 @@ function janitorToSillyTavern(entries) {
         automationId: '',
         role: null,
         vectorized: false,
+        sticky: 0,
+        cooldown: 0,
+        delay: entry.minMessages || 0,
         displayIndex: idx,
-        extensions: {
+        extensions: Object.assign({
           janitor_id: entry.id || '',
           janitor_category: entry.category || '',
           janitor_tags: entry.tags || [],
           janitor_priority: entry.priority || 0,
           janitor_activationMode: entry.activationMode || 'standard'
-        }
+        }, entry.extensions && entry.extensions.script ? { janitor_script: entry.extensions.script } : {})
       };
       return acc;
     }, {})
@@ -71,7 +74,7 @@ function sillyTavernToJanitor(stData) {
       constant: entry.constant || false,
       content: entry.content || '',
       enabled: !entry.disable,
-      extensions: {},
+      extensions: ext.janitor_script ? { script: ext.janitor_script } : {},
       groupWeight: entry.groupWeight || 100,
       id: ext.janitor_id || `entry-${String(idx + 1).padStart(4, '0')}`,
       inclusionGroupRaw: entry.group || '',
@@ -82,7 +85,7 @@ function sillyTavernToJanitor(stData) {
       keysecondaryRaw: Array.isArray(entry.keysecondary) ? entry.keysecondary.join(', ') : '',
       keysRaw: keys.join(', '),
       matchWholeWords: entry.matchWholeWords != null ? entry.matchWholeWords : true,
-      minMessages: 0,
+      minMessages: entry.delay || 0,
       name: entry.comment || `Entry ${idx + 1}`,
       prioritizeInclusion: false,
       priority: ext.janitor_priority || (idx + 1),
